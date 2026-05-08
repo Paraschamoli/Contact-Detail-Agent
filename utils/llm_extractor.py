@@ -25,7 +25,7 @@ class LLMExtractor:
     by returning null for missing fields.
     """
     
-    def __init__(self, model: str = "anthropic/claude-3.5-sonnet"):
+    def __init__(self, model: str = "anthropic/claude-3.5-sonnet-20241022"):
         """Initialize the LLM extractor.
         
         Args:

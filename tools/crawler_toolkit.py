@@ -144,9 +144,6 @@ class CrawlerToolkit:
         self.crawler = PlaywrightCrawler(
             headless=self.headless,
             max_requests_per_crawl=len(urls) * 3,  # Account for sub-pages
-            browser_pool_options={
-                'use_fingerprints': True,  # Anti-detection
-            }
         )
         
         # Define the request handler

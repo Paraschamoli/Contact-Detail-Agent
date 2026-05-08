@@ -26,7 +26,7 @@ class SearchAgent:
     TradeSearchToolkit to gather a seed list of potential company URLs.
     """
     
-    def __init__(self, model: str = "anthropic/claude-3.5-sonnet"):
+    def __init__(self, model: str = "anthropic/claude-3.5-sonnet-20241022"):
         """Initialize the search agent.
         
         Args:

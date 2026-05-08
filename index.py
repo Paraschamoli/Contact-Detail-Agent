@@ -25,21 +25,15 @@ app = typer.Typer(help="Contact Detail Agent - Find and extract company contact 
 console = Console()
 
 
-@app.command()
-def main(
-    commodity: str = typer.Option(..., "--commodity", "-c", help="Commodity to search for (e.g., 'textiles', 'electronics')"),
-    country: str = typer.Option(..., "--country", "-C", help="Country to search in (e.g., 'India', 'Germany')"),
-    industry: str = typer.Option(None, "--industry", "-i", help="Optional industry category"),
-    queries_per_pattern: int = typer.Option(3, "--queries-per-pattern", "-q", help="Number of results per search query"),
-    model: str = typer.Option("anthropic/claude-3.5-sonnet", "--model", "-m", help="LLM model to use"),
-    output_dir: str = typer.Option("output", "--output-dir", "-o", help="Output directory for results"),
+async def run_pipeline(
+    commodity: str,
+    country: str,
+    industry: str,
+    queries_per_pattern: int,
+    model: str,
+    output_dir: str,
 ):
-    """
-    Run the contact detail agent to find and extract company information.
-    
-    Example:
-        python index.py --commodity textiles --country India --industry textiles
-    """
+    """Run the complete pipeline asynchronously."""
     console.print(f"[bold blue]Starting Contact Detail Agent[/bold blue]")
     console.print(f"Commodity: {commodity}")
     console.print(f"Country: {country}")
@@ -168,5 +162,32 @@ def main(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def main(
+    commodity: str = typer.Option(..., "--commodity", "-c", help="Commodity to search for (e.g., 'textiles', 'electronics')"),
+    country: str = typer.Option(..., "--country", "-C", help="Country to search in (e.g., 'India', 'Germany')"),
+    industry: str = typer.Option(None, "--industry", "-i", help="Optional industry category"),
+    queries_per_pattern: int = typer.Option(3, "--queries-per-pattern", "-q", help="Number of results per search query"),
+    model: str = typer.Option("anthropic/claude-3.5-sonnet-20241022", "--model", "-m", help="LLM model to use"),
+    output_dir: str = typer.Option("output", "--output-dir", "-o", help="Output directory for results"),
+):
+    """
+    Run the contact detail agent to find and extract company information.
+    
+    Example:
+        python index.py --commodity textiles --country India --industry textiles
+    """
+    import asyncio
+    asyncio.run(run_pipeline(
+        commodity=commodity,
+        country=country,
+        industry=industry,
+        queries_per_pattern=queries_per_pattern,
+        model=model,
+        output_dir=output_dir
+    ))
+
+
 if __name__ == "__main__":
-    app()
+    import asyncio
+    asyncio.run(app())
