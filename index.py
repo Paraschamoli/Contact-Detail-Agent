@@ -317,7 +317,7 @@ def main(
     commodity: str = typer.Option(..., "--commodity", "-c", help="Commodity to search for (e.g., 'steel sheets', 'textiles')"),
     country: str = typer.Option(..., "--country", "-C", help="Country to search in (e.g., 'India', 'Germany')"),
     industry: str = typer.Option(None, "--industry", "-i", help="Optional industry category"),
-    queries_per_pattern: int = typer.Option(3, "--queries-per-pattern", "-q", help="Number of results per search query"),
+    queries_per_pattern: int = typer.Option(10, "--queries-per-pattern", "-q", help="Number of results per search query"),
     model: str = typer.Option("openai/gpt-oss-120b:nitro", "--model", "-m", help="LLM model to use"),
     output_dir: str = typer.Option("output", "--output-dir", "-o", help="Output directory for results"),
     outreach: bool = typer.Option(False, "--outreach", help="Generate personalized email drafts for leads with score >= 80"),

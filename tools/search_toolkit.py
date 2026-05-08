@@ -151,8 +151,8 @@ class TradeSearchToolkit:
         payload = {
             'api_key': self.api_key,
             'query': query,
-            'search_depth': 'basic',
-            'max_results': max_results * 2,  # Get more results to account for filtering
+            'search_depth': 'advanced',
+            'max_results': max_results * 3,  # Get more results to account for filtering
             'include_answer': False,
             'include_raw_content': False,
         }
@@ -182,7 +182,7 @@ class TradeSearchToolkit:
         
         payload = {
             'q': query,
-            'num': max_results * 2,  # Get more results to account for filtering
+            'num': min(max_results * 3, 100),  # Get more results to account for filtering
         }
         
         response = requests.post(self.api_url, json=payload, headers=headers)

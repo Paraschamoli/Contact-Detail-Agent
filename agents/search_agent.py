@@ -79,7 +79,7 @@ class SearchAgent:
         commodity: str, 
         country: str, 
         industry: Optional[str] = None,
-        num_queries: int = 8
+        num_queries: int = 25
     ) -> List[str]:
         """Generate specific search queries based on commodity and country.
         
@@ -101,7 +101,7 @@ class SearchAgent:
         # Build the prompt for the LLM
         prompt = f"""You are a search query generation specialist for international trade research.
 
-Your task is to generate {num_queries} specific, high-quality search queries to find companies in {country} that export {commodity} to the European Union (EU).
+Your task is to generate {num_queries} DIVERSE search queries to find companies in {country} that export {commodity} to the European Union (EU).
 
 INPUT:
 - Commodity: {commodity}
@@ -112,23 +112,27 @@ BASE PATTERNS (from configuration):
 {chr(10).join(f'- {pattern}' for pattern in base_patterns)}
 
 CRITICAL REQUIREMENTS:
-1. Generate {num_queries} unique search queries
-2. MOST queries MUST include "EU" or "Europe" or "European" to target EU-bound exporters
-3. Substitute {{commodity}}, {{country}}, and {{industry}} placeholders with the actual values
-4. Include different search strategies:
-   - EU-specific exporter directories (europages.com, kompass.com)
-   - National exporter databases with EU market focus
-   - REX-registered exporters (EU GSP system)
-   - B2B trade directories listing EU-bound exporters
-5. Make queries specific enough to return relevant business directories and corporate websites
-6. Avoid overly generic queries that would return social media or irrelevant results
-7. At least 60% of queries should mention "EU", "Europe", or "European Union"
+1. Generate exactly {num_queries} unique search queries
+2. Use MULTIPLE search strategies to maximize coverage:
+   a) EU-specific B2B directories: site:europages.com, site:kompass.com, site:alibaba.com, site:indiamart.com
+   b) Government/export promotion sites: export promotion council, trade development authority
+   c) Industry association directories: {industry} association {country} members
+   d) EU compliance searches: REX registered, CE certified, EU GSP
+   e) Specific EU country targets: "exports to Germany", "exports to France", "exports to Netherlands"
+   f) Company listing pages: "top {commodity} exporters in {country}", "{commodity} manufacturers list"
+   g) Trade show exhibitor lists: "{commodity} trade fair {country} exhibitors"
+3. At least 40% of queries should mention "EU", "Europe", or specific EU countries
+4. Use site: operator for at least 5 queries to target specific directories
+5. Vary query structure - don't just repeat the same pattern
+6. Avoid queries that return news articles, blogs, or government policy pages
 
 Return ONLY a numbered list of search queries, one per line, with no additional text or explanation.
 Example format:
-1. textile exporters India EU directory
-2. India textile manufacturers exporting to Europe
-3. REX registered textile exporters India
+1. site:europages.com textile exporters India
+2. textile manufacturers India exporting to Germany France
+3. REX registered textile exporters India list
+4. site:indiamart.com textile exporters India EU
+5. top 50 textile exporting companies India
 """
         
         try:
@@ -207,10 +211,10 @@ Example format:
     
     def gather_seed_list(
         self, 
-        commodity: str, 
-        country: str, 
+        commodity: str,
+        country: str,
         industry: Optional[str] = None,
-        queries_per_pattern: int = 5
+        queries_per_pattern: int = 10
     ) -> List[CompanySeed]:
         """Gather a seed list of potential company URLs.
         
@@ -227,12 +231,18 @@ Example format:
         """
         print(f"\n=== Gathering Seed List for {commodity} in {country} ===")
         
-        # Generate search queries
-        queries = self.generate_search_queries(commodity, country, industry)
+        # Generate LLM queries + fallback pattern queries for maximum coverage
+        queries = self.generate_search_queries(commodity, country, industry, num_queries=25)
+        
+        # Always add fallback pattern queries too (they target specific directories)
+        fallback_queries = self._fallback_query_generation(commodity, country, industry, 15)
+        for fq in fallback_queries:
+            if fq not in queries:
+                queries.append(fq)
         
         if not queries:
-            print("No queries generated. Using fallback.")
-            queries = self._fallback_query_generation(commodity, country, industry, 5)
+            print("No queries generated at all!")
+            return []
         
         all_urls = []
         seen_urls = set()
@@ -264,7 +274,7 @@ Example format:
                 
                 # Rate limit between queries
                 if i < len(queries):
-                    time.sleep(1)
+                    time.sleep(0.5)
                     
             except Exception as e:
                 logger.error(f"Search error for query '{query}': {e}")
