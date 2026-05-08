@@ -1,0 +1,39 @@
+# Industry-agnostic search configuration
+# This file defines global search patterns and data schema that apply across all industries
+# Update the global_search_queries section to add new search patterns
+# Update the schema_fields section to modify the standard data fields collected
+
+# Global search queries with placeholders
+# These patterns can be used across different industries by substituting the placeholders
+# Available placeholders: {commodity}, {country}, {industry}
+global_search_queries:
+  - "{commodity} exporters in {country} directory"
+  - "list of {commodity} manufacturers in {country} with REX status"
+  - "{commodity} suppliers in {country} database"
+  - "{industry} companies in {country} directory"
+  - "verified {commodity} exporters {country}"
+  - "{commodity} manufacturers directory {country}"
+  - "list of {commodity} companies in {country}"
+  - "{industry} businesses in {country} with contact details"
+
+# Standard schema fields for company data
+# These are the core data fields that should be collected for every company
+schema_fields:
+  - name
+  - website
+  - industry
+  - location
+
+# Industry-specific configurations
+# Add industry-specific search patterns or field requirements here as needed
+# Example structure:
+# industries:
+#   textiles:
+#     additional_fields:
+#       - product_category
+#       - certification
+#   electronics:
+#     additional_fields:
+#       - product_type
+#       - compliance
+industries: {}
