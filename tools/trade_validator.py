@@ -15,7 +15,7 @@ load_dotenv()
 
 class LegitimacyStatus(BaseModel):
     """Result of trade legitimacy validation"""
-    company_name: str = Field(description="Company name that was checked")
+    company_name: Optional[str] = Field(default="Unknown", description="Company name that was checked")
     registration_number: Optional[str] = Field(default=None, description="VAT or REX registration number found")
     vat_valid: Optional[bool] = Field(default=None, description="Whether VAT number is valid via VIES")
     vat_country: Optional[str] = Field(default=None, description="Country code from VAT number")
@@ -252,7 +252,7 @@ class TradeValidator:
         Returns:
             LegitimacyStatus with validation results
         """
-        company_name = profile_dict.get('company_name', 'Unknown')
+        company_name = profile_dict.get('company_name') or 'Unknown'
         
         result = LegitimacyStatus(
             company_name=company_name,

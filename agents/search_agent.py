@@ -1,10 +1,14 @@
+"""
+Search Agent - Generates search queries and gathers company seed lists using Agno.
+"""
+
 import os
+import json
 import yaml
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
 import sys
-import json
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,7 +35,7 @@ class SearchAgent:
         
         Args:
             model: Model identifier for OpenRouter. Defaults to Claude 3.5 Sonnet.
-                   Options: "anthropic/claude-3.5-sonnet", "openai/gpt-4o", etc.
+                   Options: "anthropic/claude-3.5-sonnet-20241022", "openai/gpt-4o", etc.
         """
         self.model = model
         self.api_key = os.getenv("OPENROUTER_API_KEY")
@@ -294,7 +298,7 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
 if __name__ == '__main__':
     try:
         # Initialize agent with Claude 3.5 Sonnet
-        agent = SearchAgent(model="anthropic/claude-3.5-sonnet")
+        agent = SearchAgent(model="anthropic/claude-3.5-sonnet-20241022")
         
         # Gather seed list for textile exporters in India
         seed_list = agent.gather_seed_list(

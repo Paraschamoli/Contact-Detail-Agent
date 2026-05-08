@@ -4,14 +4,9 @@ import re
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
+from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
+from crawlee.storages import Dataset
 from playwright.async_api import async_playwright, Page, BrowserContext
-
-try:
-    from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
-    from crawlee.storages import Dataset
-    CRAWLEE_AVAILABLE = True
-except ImportError:
-    CRAWLEE_AVAILABLE = False
 
 
 class CrawlerToolkit:
@@ -191,12 +186,6 @@ class CrawlerToolkit:
             - 'contact': Contact page content (if found)
             - 'about': About page content (if found)
         """
-        if not CRAWLEE_AVAILABLE:
-            raise ImportError(
-                "crawlee is required for crawl_urls() but is not installed. "
-                "Use deep_crawl_company() instead (uses playwright directly), "
-                "or install crawlee: pip install crawlee"
-            )
         self.results = {}
         
         # Initialize PlaywrightCrawler
