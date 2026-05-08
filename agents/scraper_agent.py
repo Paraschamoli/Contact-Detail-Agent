@@ -55,7 +55,7 @@ class ScraperAgent:
     FAILURE_BACKUP_FAILED = "backup_url_not_found"
     FAILURE_UNKNOWN = "unknown_error"
     
-    def __init__(self, model: str = "anthropic/claude-3.5-sonnet-20241022"):
+    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
         """Initialize the scraper agent.
         
         Args:
@@ -304,7 +304,7 @@ class ScraperAgent:
 if __name__ == '__main__':
     async def main():
         try:
-            agent = ScraperAgent(model="anthropic/claude-3.5-sonnet-20241022")
+            agent = ScraperAgent(model="z-ai/glm-4.7:nitro")
             
             # Test with sample seeds
             seeds = [

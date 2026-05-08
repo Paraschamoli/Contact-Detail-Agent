@@ -44,7 +44,7 @@ class LLMExtractor:
     by returning null for missing fields. Supports both basic and deep detail extraction.
     """
     
-    def __init__(self, model: str = "anthropic/claude-3.5-sonnet-20241022"):
+    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
         """Initialize the LLM extractor.
         
         Args:

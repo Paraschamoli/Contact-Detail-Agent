@@ -36,7 +36,7 @@ class AnalystAgent:
     Outputs a LeadScore (0-100) with reasoning for each company.
     """
     
-    def __init__(self, model: str = "anthropic/claude-3.5-sonnet-20241022"):
+    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
         """Initialize the analyst agent.
         
         Args:

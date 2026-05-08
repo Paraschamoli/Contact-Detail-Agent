@@ -30,12 +30,12 @@ class SearchAgent:
     TradeSearchToolkit to gather a seed list of potential company URLs.
     """
     
-    def __init__(self, model: str = "anthropic/claude-3.5-sonnet-20241022"):
+    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
         """Initialize the search agent.
         
         Args:
             model: Model identifier for OpenRouter. Defaults to Claude 3.5 Sonnet.
-                   Options: "anthropic/claude-3.5-sonnet-20241022", "openai/gpt-4o", etc.
+                   Options: "z-ai/glm-4.7:nitro", "openai/gpt-4o", etc.
         """
         self.model = model
         self.api_key = os.getenv("OPENROUTER_API_KEY")
@@ -298,7 +298,7 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
 if __name__ == '__main__':
     try:
         # Initialize agent with Claude 3.5 Sonnet
-        agent = SearchAgent(model="anthropic/claude-3.5-sonnet-20241022")
+        agent = SearchAgent(model="z-ai/glm-4.7:nitro")
         
         # Gather seed list for textile exporters in India
         seed_list = agent.gather_seed_list(
