@@ -1,10 +1,17 @@
 import asyncio
 import random
-from typing import List, Dict, Optional
+import re
+from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
-from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
-from crawlee.storages import Dataset
+from playwright.async_api import async_playwright, Page, BrowserContext
+
+try:
+    from crawlee.crawlers import PlaywrightCrawler, PlaywrightCrawlingContext
+    from crawlee.storages import Dataset
+    CRAWLEE_AVAILABLE = True
+except ImportError:
+    CRAWLEE_AVAILABLE = False
 
 
 class CrawlerToolkit:
@@ -43,6 +50,52 @@ class CrawlerToolkit:
         'company',
         'our-story',
         'who-we-are',
+    ]
+    
+    # Keywords for deep crawl link discovery (with relevance weights)
+    DEEP_CRAWL_KEYWORDS = {
+        'contact': 10,
+        'contact-us': 10,
+        'about': 8,
+        'about-us': 8,
+        'team': 7,
+        'our-team': 7,
+        'management': 6,
+        'leadership': 6,
+        'global-presence': 9,
+        'global': 9,
+        'presence': 5,
+        'offices': 6,
+        'locations': 5,
+        'reach-us': 8,
+        'get-in-touch': 7,
+        'company': 5,
+        'our-story': 6,
+        'who-we-are': 6,
+        'exports': 4,
+        'markets': 4,
+        'international': 4,
+        'worldwide': 4,
+    }
+    
+    # CSS selectors to wait for on different page types
+    WAIT_SELECTORS = [
+        'a[href*="contact"]',
+        'a[href*="about"]',
+        '.contact-form',
+        '#contact-form',
+        '.contact-details',
+        '.email',
+        'a[href^="mailto:"]',
+        '.address',
+        '.phone',
+        '.team-member',
+        '.staff',
+        '.office-location',
+        'table',
+        '.content',
+        'main',
+        'article',
     ]
     
     def __init__(self, headless: bool = True):
@@ -138,12 +191,21 @@ class CrawlerToolkit:
             - 'contact': Contact page content (if found)
             - 'about': About page content (if found)
         """
+        if not CRAWLEE_AVAILABLE:
+            raise ImportError(
+                "crawlee is required for crawl_urls() but is not installed. "
+                "Use deep_crawl_company() instead (uses playwright directly), "
+                "or install crawlee: pip install crawlee"
+            )
         self.results = {}
         
         # Initialize PlaywrightCrawler
         self.crawler = PlaywrightCrawler(
             headless=self.headless,
             max_requests_per_crawl=len(urls) * 3,  # Account for sub-pages
+            browser_type_args={
+                'user_agent': self._get_random_user_agent()
+            }
         )
         
         # Define the request handler
@@ -157,7 +219,7 @@ class CrawlerToolkit:
             headers = self._get_common_headers()
             
             await context.page.set_extra_http_headers(headers)
-            await context.page.set_user_agent(user_agent)
+            # Note: User agent is set at browser context level in newer Playwright versions
             
             # Wait for network idle to handle JS-heavy sites
             try:
@@ -233,6 +295,232 @@ class CrawlerToolkit:
         """
         results = await self.crawl_urls([url])
         return results.get(url, {})
+    
+    def _score_link_relevance(self, url: str, link_text: str) -> int:
+        """Score a link's relevance based on URL path and link text.
+        
+        Args:
+            url: The link URL
+            link_text: The visible text of the link
+            
+        Returns:
+            Relevance score (higher = more relevant)
+        """
+        score = 0
+        url_lower = url.lower()
+        text_lower = link_text.lower().strip()
+        
+        # Score based on URL path keywords
+        for keyword, weight in self.DEEP_CRAWL_KEYWORDS.items():
+            if keyword in url_lower:
+                score += weight
+            if keyword in text_lower:
+                score += weight // 2
+        
+        # Bonus for exact keyword match in link text
+        for keyword in ['contact', 'about', 'team', 'global presence']:
+            if text_lower == keyword:
+                score += 5
+        
+        return score
+    
+    def _extract_text_from_html(self, html: str) -> str:
+        """Extract readable text content from HTML, stripping tags and scripts.
+        
+        Args:
+            html: Raw HTML content
+            
+        Returns:
+            Cleaned text content
+        """
+        # Remove script and style tags with content
+        text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        # Remove HTML comments
+        text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+        # Remove all HTML tags
+        text = re.sub(r'<[^>]+>', ' ', text)
+        # Clean up whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        # Decode common HTML entities
+        text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+        text = text.replace('&nbsp;', ' ').replace('&#64;', '@').replace('&#46;', '.')
+        
+        return text
+    
+    async def _wait_for_content(self, page: Page) -> None:
+        """Wait for dynamically loaded content to appear on the page.
+        
+        Uses a 'Wait for Selector' strategy - tries multiple selectors and waits
+        for the first one to appear, ensuring dynamic content (contact forms,
+        email popups, etc.) is fully rendered.
+        
+        Args:
+            page: Playwright page object
+        """
+        # First wait for network idle
+        try:
+            await page.wait_for_load_state('networkidle', timeout=8000)
+        except Exception:
+            pass
+        
+        # Then wait for any of the content selectors to appear
+        for selector in self.WAIT_SELECTORS:
+            try:
+                await page.wait_for_selector(selector, timeout=3000)
+                break  # Found a selector, content is loaded
+            except Exception:
+                continue
+        
+        # Extra wait for any JS-rendered content to settle
+        await asyncio.sleep(0.5)
+    
+    
+    async def _collect_links_from_page(self, page: Page, base_url: str) -> List[Tuple[str, str, int]]:
+        """Collect and score all links on a page for relevance.
+        
+        Args:
+            page: Playwright page object
+            base_url: Base URL to filter same-domain links
+            
+        Returns:
+            List of (url, link_text, relevance_score) tuples, sorted by score descending
+        """
+        base_domain = urlparse(base_url).netloc.lower()
+        scored_links = []
+        seen_urls = set()
+        
+        # Extract all anchor elements with href
+        links = await page.evaluate("""() => {
+            const links = Array.from(document.querySelectorAll('a[href]'));
+            return links.map(link => ({
+                href: link.href,
+                text: link.textContent || link.innerText || ''
+            }));
+        }""")
+        
+        for link in links:
+            href = link.get('href', '')
+            text = link.get('text', '')
+            
+            if not href or href.startswith('#') or href.startswith('javascript:'):
+                continue
+            
+            # Only follow same-domain links
+            parsed = urlparse(href)
+            if parsed.netloc.lower() != base_domain:
+                continue
+            
+            # Skip the base URL itself
+            if href.rstrip('/') == base_url.rstrip('/'):
+                continue
+            
+            # Skip PDFs, images, and other non-HTML resources
+            path_lower = parsed.path.lower()
+            if any(path_lower.endswith(ext) for ext in ['.pdf', '.jpg', '.png', '.gif', '.svg', '.zip', '.doc', '.xls']):
+                continue
+            
+            if href not in seen_urls:
+                seen_urls.add(href)
+                score = self._score_link_relevance(href, text)
+                if score > 0:
+                    scored_links.append((href, text, score))
+        
+        # Sort by relevance score descending
+        scored_links.sort(key=lambda x: x[2], reverse=True)
+        return scored_links
+    
+    async def deep_crawl_company(self, base_url: str, max_sub_pages: int = 3) -> str:
+        """Deep crawl a company website with intelligent link discovery.
+        
+        Visits the base_url, automatically finds and clicks links containing
+        keywords like 'Contact', 'About', 'Team', 'Global Presence'. Uses a
+        'Wait for Selector' strategy to ensure dynamically loaded content is
+        fully rendered. Returns a combined text blob of the homepage and the
+        top most relevant sub-pages.
+        
+        Args:
+            base_url: The company website URL to crawl
+            max_sub_pages: Maximum number of sub-pages to visit (default: 3)
+            
+        Returns:
+            Combined text blob of homepage + top sub-pages for LLM analysis
+        """
+        combined_text_parts = []
+        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=self.headless,
+                args=['--disable-blink-features=AutomationControlled']
+            )
+            
+            # Create context with anti-detection settings
+            context = await browser.new_context(
+                user_agent=self._get_random_user_agent(),
+                viewport={'width': 1920, 'height': 1080},
+                locale='en-US',
+                extra_http_headers=self._get_common_headers(),
+            )
+            
+            # Override webdriver detection
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+            """)
+            
+            try:
+                page = await context.new_page()
+                
+                # ── Step 1: Visit homepage ──
+                print(f"  [deep_crawl] Visiting homepage: {base_url}")
+                await page.goto(base_url, wait_until='domcontentloaded', timeout=15000)
+                await self._wait_for_content(page)
+                
+                homepage_html = await page.content()
+                homepage_text = self._extract_text_from_html(homepage_html)
+                combined_text_parts.append(f"--- HOMEPAGE ({base_url}) ---\n{homepage_text}")
+                print(f"  [deep_crawl] Homepage extracted ({len(homepage_text)} chars)")
+                
+                # ── Step 2: Find relevant links on homepage ──
+                scored_links = await self._collect_links_from_page(page, base_url)
+                print(f"  [deep_crawl] Found {len(scored_links)} relevant links")
+                
+                # ── Step 3: Visit top sub-pages ──
+                visited_count = 0
+                for link_url, link_text, score in scored_links:
+                    if visited_count >= max_sub_pages:
+                        break
+                    
+                    try:
+                        print(f"  [deep_crawl] Visiting sub-page ({score} pts): {link_url} ({link_text.strip()[:40]})")
+                        
+                        sub_page = await context.new_page()
+                        await sub_page.goto(link_url, wait_until='domcontentloaded', timeout=15000)
+                        await self._wait_for_content(sub_page)
+                        
+                        sub_html = await sub_page.content()
+                        sub_text = self._extract_text_from_html(sub_html)
+                        combined_text_parts.append(f"--- SUB-PAGE: {link_text.strip()} ({link_url}) ---\n{sub_text}")
+                        print(f"  [deep_crawl] Sub-page extracted ({len(sub_text)} chars)")
+                        
+                        await sub_page.close()
+                        visited_count += 1
+                        
+                        # Small delay between page visits
+                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                        
+                    except Exception as e:
+                        print(f"  [deep_crawl] Failed to visit {link_url}: {e}")
+                        continue
+                
+            finally:
+                await context.close()
+                await browser.close()
+        
+        combined_text = "\n\n".join(combined_text_parts)
+        print(f"  [deep_crawl] Complete: {len(combined_text)} total chars from {1 + visited_count} pages")
+        return combined_text
 
 
 # Example usage and testing
@@ -240,28 +528,14 @@ if __name__ == '__main__':
     async def main():
         toolkit = CrawlerToolkit(headless=True)
         
-        # Example URLs
-        urls = [
-            'https://example.com',
-        ]
-        
         try:
-            results = await toolkit.crawl_urls(urls)
+            # Deep crawl a single company
+            result = await toolkit.deep_crawl_company('https://example.com', max_sub_pages=3)
             
             print(f"\n{'='*60}")
-            print(f"CRAWLER RESULTS ({len(results)} sites)")
+            print(f"DEEP CRAWL RESULT ({len(result)} chars)")
             print(f"{'='*60}")
-            
-            for base_url, content_dict in results.items():
-                print(f"\nSite: {base_url}")
-                print(f"  Main page: {'✓' if 'main' in content_dict else '✗'}")
-                print(f"  Contact page: {'✓' if 'contact' in content_dict else '✗'}")
-                print(f"  About page: {'✓' if 'about' in content_dict else '✗'}")
-                
-                if 'contact' in content_dict:
-                    print(f"  Contact content length: {len(content_dict['contact'])} chars")
-                if 'about' in content_dict:
-                    print(f"  About content length: {len(content_dict['about'])} chars")
+            print(result[:500] + "..." if len(result) > 500 else result)
         
         except Exception as e:
             print(f"Error: {e}")

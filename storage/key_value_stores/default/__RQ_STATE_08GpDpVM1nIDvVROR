@@ -1,0 +1,19 @@
+{
+  "sequence_counter": 26,
+  "forefront_sequence_counter": 0,
+  "forefront_requests": {},
+  "regular_requests": {
+    "https://indiaexportnews.com/directory_list.php?cat_id=4&page=60&pageid=32": 23,
+    "https://www.textileinfomedia.com/rex-jeans-specialist": 19,
+    "https://in.kompass.com/a/textiles/12": 21,
+    "https://textileinfomedia.wixsite.com/business/textile-companies": 17,
+    "https://www.seair.co.in/blog/indian-textile-exporters.aspx": 25,
+    "https://textilepages.com/india": 24,
+    "https://www.scribd.com/doc/50406326/list-of-textile-companies-in-india": 22,
+    "https://www.lusha.com/company-search/textile-manufacturing/ed1e786e7e/india/137": 20
+  },
+  "in_progress_requests": [],
+  "handled_requests": [
+    "https://textileinfomedia.wixsite.com/business/textile-companies"
+  ]
+}
