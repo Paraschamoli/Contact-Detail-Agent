@@ -77,24 +77,27 @@ class OutputWriter:
         return "Tier 3"
     
     def _prepare_tiered_row(self, profile: Dict) -> Dict:
-        """Prepare a flat dictionary row from a company profile with tier info.
-        
-        Args:
-            profile: Company profile dictionary with verification data
-            
-        Returns:
-            Flat dictionary suitable for CSV writing
-        """
+        """Prepare a flat dictionary row from a company profile with tier info."""
         row = {}
         
         # Core fields
         row['tier'] = self._categorize_tier(profile)
-        row['company_name'] = profile.get('company_name', '')
-        row['website'] = profile.get('website', '')
-        row['location'] = profile.get('location', '')
-        row['export_region'] = profile.get('export_region', '')
+        row['company_name'] = (profile.get('company_name') or '').strip()
+        row['website'] = (profile.get('website') or '').strip()
+        row['location'] = (profile.get('location') or '').strip()
+        row['country'] = (profile.get('country') or '').strip()
+        row['product_category'] = (profile.get('product_category') or '').strip()
+        row['business_description'] = (profile.get('business_description') or '').strip()
+        row['export_region'] = (profile.get('export_region') or '').strip()
         
-        # Emails - join lists into semicolon-separated strings
+        # EU destinations
+        eu_destinations = profile.get('eu_destinations') or []
+        row['eu_destinations'] = '; '.join(eu_destinations) if eu_destinations else ''
+        
+        # Contact person
+        row['contact_person'] = (profile.get('contact_person') or '').strip()
+        
+        # Emails
         direct_emails = profile.get('direct_emails') or []
         row['direct_emails'] = '; '.join(direct_emails) if direct_emails else ''
         row['email_confidence_avg'] = profile.get('email_confidence_avg', '')
@@ -104,6 +107,11 @@ class OutputWriter:
         phone_numbers = profile.get('phone_numbers') or []
         row['phone_numbers'] = '; '.join(phone_numbers) if phone_numbers else ''
         
+        # LinkedIn & social links
+        row['linkedin_profile'] = (profile.get('linkedin_profile') or '').strip()
+        social_links = profile.get('social_links') or []
+        row['social_links'] = '; '.join(social_links) if social_links else ''
+        
         # Export details
         export_details = profile.get('export_details') or []
         row['export_details'] = '; '.join(export_details) if export_details else ''
@@ -112,7 +120,7 @@ class OutputWriter:
         certifications = profile.get('certifications') or []
         row['certifications'] = '; '.join(certifications) if certifications else ''
         
-        # Key executives - flatten into string
+        # Key executives
         executives = profile.get('key_executives') or []
         exec_strings = []
         for exec_data in executives:
@@ -127,7 +135,7 @@ class OutputWriter:
                 exec_strings.append(exec_data)
         row['key_executives'] = '; '.join(exec_strings) if exec_strings else ''
         
-        # Email verification details (compact)
+        # Email verification details
         verifications = profile.get('email_verifications') or []
         verify_strings = []
         for v in verifications:
@@ -143,8 +151,6 @@ class OutputWriter:
         row['eu_compliance'] = profile.get('_eu_compliance', '')
         row['company_type'] = profile.get('_company_type', '')
         row['reasoning'] = profile.get('_reasoning', '')
-        
-        # Trade legitimacy
         row['legitimacy_level'] = profile.get('_legitimacy_level', '')
         
         # Email draft (if outreach enabled)
@@ -159,6 +165,57 @@ class OutputWriter:
             row['crawl_failure'] = profile['_crawl_failure']
         
         return row
+    
+    def deduplicate_profiles(self, profiles: List[Dict]) -> List[Dict]:
+        """Remove duplicate companies and merge contact details.
+        
+        Deduplicates by normalized company name. When duplicates are found,
+        merges contact info (emails, phones) from all entries into one.
+        
+        Args:
+            profiles: List of company profile dictionaries
+            
+        Returns:
+            Deduplicated list of company profiles
+        """
+        import re
+        merged = {}
+        
+        for profile in profiles:
+            name = profile.get('company_name') or ''
+            norm = re.sub(r'[^a-z0-9]', '', name.lower())
+            if not norm:
+                continue
+            
+            if norm not in merged:
+                merged[norm] = profile.copy()
+            else:
+                existing = merged[norm]
+                # Merge emails
+                ex_emails = set(existing.get('direct_emails') or [])
+                new_emails = set(profile.get('direct_emails') or [])
+                existing['direct_emails'] = list(ex_emails | new_emails) or None
+                # Merge phones
+                ex_phones = set(existing.get('phone_numbers') or [])
+                new_phones = set(profile.get('phone_numbers') or [])
+                existing['phone_numbers'] = list(ex_phones | new_phones) or None
+                # Merge EU destinations
+                ex_eu = set(existing.get('eu_destinations') or [])
+                new_eu = set(profile.get('eu_destinations') or [])
+                existing['eu_destinations'] = list(ex_eu | new_eu) or None
+                # Merge social links
+                ex_social = set(existing.get('social_links') or [])
+                new_social = set(profile.get('social_links') or [])
+                existing['social_links'] = list(ex_social | new_social) or None
+                # Keep richer data for text fields
+                for field in ['contact_person', 'business_description', 'linkedin_profile', 'country', 'product_category']:
+                    if not existing.get(field) and profile.get(field):
+                        existing[field] = profile[field]
+                # Keep higher lead score
+                if profile.get('_lead_score', 0) > existing.get('_lead_score', 0):
+                    existing['_lead_score'] = profile['_lead_score']
+        
+        return list(merged.values())
     
     def write_detailed_csv(
         self,
@@ -206,12 +263,14 @@ class OutputWriter:
         filename = '_'.join(parts) + '.csv'
         filepath = self.output_dir / filename
         
-        # Define column order
+        # Define column order - all required fields present
         columns = [
             'tier', 'lead_score', 'legitimacy_level',
-            'company_name', 'website', 'location',
+            'company_name', 'website', 'location', 'country',
+            'contact_person', 'product_category', 'business_description',
             'direct_emails', 'email_confidence_avg', 'has_verified_email',
-            'phone_numbers', 'export_details', 'export_region',
+            'phone_numbers', 'linkedin_profile', 'social_links',
+            'export_details', 'export_region', 'eu_destinations',
             'certifications', 'key_executives',
             'product_match', 'eu_compliance', 'company_type', 'reasoning',
             'email_draft_recipient', 'email_draft_subject', 'email_draft_body',

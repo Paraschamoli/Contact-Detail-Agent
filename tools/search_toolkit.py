@@ -1,10 +1,14 @@
 import os
 import re
+import time
+import logging
 from typing import List, Optional
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class TradeSearchToolkit:
@@ -90,35 +94,45 @@ class TradeSearchToolkit:
                 filtered.append(url)
         return filtered
     
-    def search_for_exporters(self, query: str, max_results: int = 10) -> List[str]:
-        """Search for exporters and manufacturers.
+    def search_for_exporters(self, query: str, max_results: int = 10, max_retries: int = 3) -> List[str]:
+        """Search for exporters and manufacturers with retry logic.
         
         Args:
             query: Search query string
             max_results: Maximum number of results to return
+            max_retries: Maximum number of retry attempts (default: 3)
             
         Returns:
             List of filtered URLs from search results
-            
-        Raises:
-            ValueError: If API key is missing
-            requests.exceptions.RequestException: If API request fails
-            RuntimeError: If API limit is reached
         """
-        try:
-            if self.api_provider == 'tavily':
-                return self._search_tavily(query, max_results)
-            else:
-                return self._search_serper(query, max_results)
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                raise RuntimeError(f"API rate limit exceeded for {self.api_provider}") from e
-            elif e.response.status_code == 401:
-                raise RuntimeError(f"Invalid API key for {self.api_provider}") from e
-            elif e.response.status_code == 402:
-                raise RuntimeError(f"API quota exceeded for {self.api_provider}") from e
-            else:
+        for attempt in range(max_retries):
+            try:
+                if self.api_provider == 'tavily':
+                    return self._search_tavily(query, max_results)
+                else:
+                    return self._search_serper(query, max_results)
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response else None
+                if status == 429:
+                    wait = (2 ** attempt) + 1
+                    logger.warning(f"Rate limited by {self.api_provider}, retrying in {wait}s (attempt {attempt+1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+                elif status in (401, 402):
+                    raise RuntimeError(f"API error ({status}) for {self.api_provider}") from e
+                else:
+                    if attempt < max_retries - 1:
+                        time.sleep(1)
+                        continue
+                    raise
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    wait = (2 ** attempt)
+                    logger.warning(f"Request failed: {e}, retrying in {wait}s")
+                    time.sleep(wait)
+                    continue
                 raise
+        return []
     
     def _search_tavily(self, query: str, max_results: int) -> List[str]:
         """Execute search using Tavily API.

@@ -6,15 +6,18 @@
 # Global search queries with placeholders
 # These patterns can be used across different industries by substituting the placeholders
 # Available placeholders: {commodity}, {country}, {industry}
+# Focus: EU-bound exporters
 global_search_queries:
-  - "{commodity} exporters in {country} directory"
-  - "list of {commodity} manufacturers in {country} with REX status"
-  - "{commodity} suppliers in {country} database"
-  - "{industry} companies in {country} directory"
-  - "verified {commodity} exporters {country}"
-  - "{commodity} manufacturers directory {country}"
-  - "list of {commodity} companies in {country}"
-  - "{industry} businesses in {country} with contact details"
+  - "{commodity} exporters in {country} to EU directory"
+  - "list of {commodity} manufacturers in {country} exporting to Europe"
+  - "{commodity} suppliers in {country} EU market"
+  - "{industry} companies in {country} European Union export"
+  - "verified {commodity} exporters {country} EU"
+  - "{commodity} manufacturers directory {country} REX registered"
+  - "{commodity} exporters {country} Europages"
+  - "{industry} businesses in {country} with EU contact details"
+  - "{commodity} {country} exporters to Germany France Netherlands"
+  - "site:europages.com {commodity} {country}"
 
 # Standard schema fields for company data
 # These are the core data fields that should be collected for every company

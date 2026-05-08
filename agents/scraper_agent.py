@@ -6,18 +6,23 @@ Falls back to backup URLs (LinkedIn, trade directories) if primary site fails.
 
 import os
 import asyncio
+import logging
 from typing import List, Optional
 from enum import Enum
 from pydantic import BaseModel, Field
 from openai import OpenAI
 import sys
 
-# Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.search_agent import CompanySeed
 from tools.crawler_toolkit import CrawlerToolkit
 from tools.search_toolkit import TradeSearchToolkit
+
+logger = logging.getLogger(__name__)
+
+# Concurrency limit for crawling
+MAX_CONCURRENT_CRAWLS = 5
 
 
 class CrawlStatus(str, Enum):
@@ -55,7 +60,7 @@ class ScraperAgent:
     FAILURE_BACKUP_FAILED = "backup_url_not_found"
     FAILURE_UNKNOWN = "unknown_error"
     
-    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
+    def __init__(self, model: str = "openai/gpt-oss-120b:nitro"):
         """Initialize the scraper agent.
         
         Args:
@@ -230,57 +235,58 @@ class ScraperAgent:
                 )
     
     async def investigate_all(self, seeds: List[CompanySeed]) -> List[ScrapedCompany]:
-        """Investigate all companies from the seed list.
+        """Investigate all companies from the seed list concurrently.
         
-        Ensures every company from Stage 1 either gets a detailed crawl
-        or a specific failure reason.
-        
-        Args:
-            seeds: List of CompanySeed objects from the Search Agent
-            
-        Returns:
-            List of ScrapedCompany objects with crawl results
+        Uses a semaphore to limit concurrent crawls and avoid overwhelming
+        target sites or local resources.
         """
         print(f"\n{'='*60}")
         print(f"SCRAPER AGENT - Investigating {len(seeds)} companies")
         print(f"{'='*60}")
         
-        results = []
-        success_count = 0
-        backup_count = 0
-        failed_count = 0
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CRAWLS)
         
-        for i, seed in enumerate(seeds, 1):
-            print(f"\n[{i}/{len(seeds)}] Investigating: {seed.company_name}")
-            
-            result = await self.investigate_company(seed)
-            results.append(result)
-            
-            # Track stats
-            if result.status == CrawlStatus.SUCCESS:
-                success_count += 1
-            elif result.status == CrawlStatus.BACKUP_SUCCESS:
-                backup_count += 1
+        async def _limited_investigate(seed: CompanySeed, idx: int) -> ScrapedCompany:
+            async with semaphore:
+                print(f"\n[{idx}/{len(seeds)}] Investigating: {seed.company_name}")
+                return await self.investigate_company(seed)
+        
+        tasks = [_limited_investigate(seed, i) for i, seed in enumerate(seeds, 1)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Convert exceptions to failed ScrapedCompany entries
+        final_results = []
+        for seed, result in zip(seeds, results):
+            if isinstance(result, Exception):
+                logger.error(f"Unexpected error for {seed.company_name}: {result}")
+                final_results.append(ScrapedCompany(
+                    company_name=seed.company_name,
+                    original_url=seed.url,
+                    status=CrawlStatus.FAILED,
+                    failure_reason=f"{self.FAILURE_UNKNOWN}: {result}"
+                ))
             else:
-                failed_count += 1
+                final_results.append(result)
         
-        # Summary
+        success_count = sum(1 for r in final_results if r.status == CrawlStatus.SUCCESS)
+        backup_count = sum(1 for r in final_results if r.status == CrawlStatus.BACKUP_SUCCESS)
+        failed_count = sum(1 for r in final_results if r.status == CrawlStatus.FAILED)
+        
         print(f"\n{'='*60}")
         print(f"INVESTIGATION COMPLETE")
         print(f"{'='*60}")
         print(f"  Primary crawl success: {success_count}")
         print(f"  Backup crawl success:  {backup_count}")
         print(f"  Failed:                {failed_count}")
-        print(f"  Total:                 {len(results)}")
+        print(f"  Total:                 {len(final_results)}")
         
-        # Log failure details
         if failed_count > 0:
             print(f"\nFailure Details:")
-            for r in results:
+            for r in final_results:
                 if r.status == CrawlStatus.FAILED:
                     print(f"  - {r.company_name}: {r.failure_reason}")
         
-        return results
+        return final_results
     
     def get_agent_description(self) -> dict:
         """Get agent description for framework integration.
@@ -304,7 +310,7 @@ class ScraperAgent:
 if __name__ == '__main__':
     async def main():
         try:
-            agent = ScraperAgent(model="z-ai/glm-4.7:nitro")
+            agent = ScraperAgent(model="openai/gpt-oss-120b:nitro")
             
             # Test with sample seeds
             seeds = [

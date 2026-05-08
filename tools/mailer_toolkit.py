@@ -89,7 +89,7 @@ class MailerToolkit:
         },
     }
     
-    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
+    def __init__(self, model: str = "openai/gpt-oss-120b:nitro"):
         """Initialize the mailer toolkit.
         
         Args:

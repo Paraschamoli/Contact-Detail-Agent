@@ -246,13 +246,11 @@ class CrawlerToolkit:
                 self.results[base_url]['main'] = content
                 context.log.info(f'  -> Extracted Main page')
                 
-                # Extract links and enqueue Contact/About pages
-                links = await context.enqueue_links()
-                
-                # Find and manually enqueue Contact and About pages if not found
-                all_links = []
-                for link in await links:
-                    all_links.append(str(link))
+                # Extract links from page using evaluate (enqueue_links returns RequestQueue, not list)
+                all_links = await context.page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('a[href]')).map(a => a.href);
+                }""")
+                all_links = [str(link) for link in all_links]
                 
                 contact_url = self._find_contact_url(base_url, all_links)
                 about_url = self._find_about_url(base_url, all_links)

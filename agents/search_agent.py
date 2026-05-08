@@ -4,16 +4,20 @@ Search Agent - Generates search queries and gathers company seed lists using Agn
 
 import os
 import json
+import re
+import time
+import logging
 import yaml
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
 import sys
 
-# Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools.search_toolkit import TradeSearchToolkit
+
+logger = logging.getLogger(__name__)
 
 
 class CompanySeed(BaseModel):
@@ -30,12 +34,12 @@ class SearchAgent:
     TradeSearchToolkit to gather a seed list of potential company URLs.
     """
     
-    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
+    def __init__(self, model: str = "openai/gpt-oss-120b:nitro"):
         """Initialize the search agent.
         
         Args:
             model: Model identifier for OpenRouter. Defaults to Claude 3.5 Sonnet.
-                   Options: "z-ai/glm-4.7:nitro", "openai/gpt-4o", etc.
+                   Options: "openai/gpt-oss-120b:nitro", "openai/gpt-4o", etc.
         """
         self.model = model
         self.api_key = os.getenv("OPENROUTER_API_KEY")
@@ -97,7 +101,7 @@ class SearchAgent:
         # Build the prompt for the LLM
         prompt = f"""You are a search query generation specialist for international trade research.
 
-Your task is to generate {num_queries} specific, high-quality search queries to find exporters and manufacturers.
+Your task is to generate {num_queries} specific, high-quality search queries to find companies in {country} that export {commodity} to the European Union (EU).
 
 INPUT:
 - Commodity: {commodity}
@@ -107,15 +111,24 @@ INPUT:
 BASE PATTERNS (from configuration):
 {chr(10).join(f'- {pattern}' for pattern in base_patterns)}
 
-REQUIREMENTS:
+CRITICAL REQUIREMENTS:
 1. Generate {num_queries} unique search queries
-2. Use the base patterns as inspiration, but make them more specific and varied
+2. MOST queries MUST include "EU" or "Europe" or "European" to target EU-bound exporters
 3. Substitute {{commodity}}, {{country}}, and {{industry}} placeholders with the actual values
-4. Include different search strategies: directory searches, manufacturer lists, verified exporters, etc.
+4. Include different search strategies:
+   - EU-specific exporter directories (europages.com, kompass.com)
+   - National exporter databases with EU market focus
+   - REX-registered exporters (EU GSP system)
+   - B2B trade directories listing EU-bound exporters
 5. Make queries specific enough to return relevant business directories and corporate websites
 6. Avoid overly generic queries that would return social media or irrelevant results
+7. At least 60% of queries should mention "EU", "Europe", or "European Union"
 
-Return ONLY a JSON array of query strings, with no additional text or explanation.
+Return ONLY a numbered list of search queries, one per line, with no additional text or explanation.
+Example format:
+1. textile exporters India EU directory
+2. India textile manufacturers exporting to Europe
+3. REX registered textile exporters India
 """
         
         try:
@@ -124,33 +137,35 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a search query generation specialist. Always return valid JSON arrays of strings."
+                        "content": "You are a search query generation specialist. Return search queries as a numbered list, one per line."
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=0.7,
-                response_format={"type": "json_object"}
+                temperature=0.7
             )
             
             content = response.choices[0].message.content
-            queries_data = json.loads(content)
             
-            # Handle different response formats
-            if isinstance(queries_data, list):
-                queries = queries_data
-            elif isinstance(queries_data, dict) and 'queries' in queries_data:
-                queries = queries_data['queries']
-            else:
-                queries = list(queries_data.values()) if queries_data else []
+            # Parse numbered list format
+            queries = []
+            for line in content.strip().split('\n'):
+                line = line.strip()
+                # Remove numbers/bullets at start
+                if line and (line[0].isdigit() or line.startswith('-') or line.startswith('*')):
+                    # Remove prefix
+                    line = line.split('.', 1)[-1].split('-', 1)[-1].split('*', 1)[-1].strip()
+                if line and len(line) > 5:  # Ignore very short lines
+                    queries.append(line)
             
             # Ensure we have the right number of queries
             queries = queries[:num_queries]
             
-            print(f"Generated {len(queries)} search queries")
-            return queries
+            if queries:
+                print(f"Generated {len(queries)} search queries")
+                return queries
             
         except Exception as e:
             print(f"Error generating queries with LLM: {e}")
@@ -221,9 +236,10 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
         
         all_urls = []
         seen_urls = set()
+        seen_names = set()  # Dedup by normalized company name
         
-        # Execute searches for each query
         for i, query in enumerate(queries, 1):
+            logger.info(f"[{i}/{len(queries)}] Searching: {query}")
             print(f"\n[{i}/{len(queries)}] Searching: {query}")
             
             try:
@@ -232,16 +248,26 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
                     max_results=queries_per_pattern
                 )
                 
+                new_count = 0
                 for url in urls:
                     if url not in seen_urls:
                         seen_urls.add(url)
-                        # Extract company name from URL for the seed
                         company_name = self._extract_company_name_from_url(url)
-                        all_urls.append(CompanySeed(company_name=company_name, url=url))
+                        # Normalize name for dedup
+                        norm_name = re.sub(r'[^a-z0-9]', '', company_name.lower())
+                        if norm_name and norm_name not in seen_names:
+                            seen_names.add(norm_name)
+                            all_urls.append(CompanySeed(company_name=company_name, url=url))
+                            new_count += 1
                 
-                print(f"  Found {len(urls)} URLs ({len([u for u in urls if u not in seen_urls])} new)")
+                print(f"  Found {len(urls)} URLs ({new_count} new unique companies)")
                 
+                # Rate limit between queries
+                if i < len(queries):
+                    time.sleep(1)
+                    
             except Exception as e:
+                logger.error(f"Search error for query '{query}': {e}")
                 print(f"  Error: {e}")
                 continue
         
@@ -251,29 +277,27 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
     def _extract_company_name_from_url(self, url: str) -> str:
         """Extract a tentative company name from URL.
         
-        Args:
-            url: Company URL
-            
-        Returns:
-            Extracted company name or placeholder
+        Handles multi-part TLDs like .co.uk, .com.br correctly.
         """
         try:
-            # Remove protocol and www
             clean_url = url.replace('https://', '').replace('http://', '').replace('www.', '')
-            
-            # Get domain (first part before slash)
             domain = clean_url.split('/')[0]
-            
-            # Remove TLD and common suffixes
             parts = domain.split('.')
-            if len(parts) >= 2:
-                name = parts[-2]  # Second-to-last part (e.g., "company" in company.com)
-                # Capitalize and clean
-                name = name.replace('-', ' ').replace('_', ' ')
-                return name.title()
-            
-            return domain
-            
+            # Skip common multi-part TLDs
+            multi_tlds = {'co.uk', 'com.br', 'com.au', 'co.in', 'com.sg', 'co.jp', 'com.mx', 'co.nz'}
+            domain_suffix = '.'.join(parts[-2:])
+            if domain_suffix in multi_tlds and len(parts) >= 3:
+                name = parts[-3]
+            elif len(parts) >= 2:
+                name = parts[-2]
+            else:
+                return domain
+            name = name.replace('-', ' ').replace('_', ' ')
+            # Filter out generic names
+            generic = {'index', 'home', 'main', 'default', 'www', 'site', 'web', 'page'}
+            if name.lower() in generic:
+                return domain.title()
+            return name.title()
         except Exception:
             return "Unknown Company"
     
@@ -298,7 +322,7 @@ Return ONLY a JSON array of query strings, with no additional text or explanatio
 if __name__ == '__main__':
     try:
         # Initialize agent with Claude 3.5 Sonnet
-        agent = SearchAgent(model="z-ai/glm-4.7:nitro")
+        agent = SearchAgent(model="openai/gpt-oss-120b:nitro")
         
         # Gather seed list for textile exporters in India
         seed_list = agent.gather_seed_list(

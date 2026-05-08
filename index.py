@@ -7,6 +7,7 @@ Orchestrates the full 3-stage pipeline:
 """
 
 import asyncio
+import logging
 import sys
 import os
 from pathlib import Path
@@ -17,18 +18,23 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
-# Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agents.search_agent import SearchAgent, CompanySeed
 from agents.scraper_agent import ScraperAgent, ScrapedCompany, CrawlStatus
 from agents.analyst_agent import AnalystAgent, LeadScore
 from tools.crawler_toolkit import CrawlerToolkit
-# from tools.verification_toolkit import VerificationToolkit  # Disabled - no email service purchased
 from tools.trade_validator import TradeValidator
 from tools.mailer_toolkit import MailerToolkit
 from utils.llm_extractor import LLMExtractor, CompanyProfile
 from utils.output_writer import OutputWriter
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler('agent.log'), logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(help="Contact Detail Agent - Find, validate, and outreach to trade leads")
 console = Console()
@@ -117,8 +123,13 @@ async def run_pipeline(
                     if not profile_dict.get('website'):
                         profile_dict['website'] = scraped.original_url
                     
+                    # Inject commodity/country if not extracted by LLM
+                    if not profile_dict.get('country'):
+                        profile_dict['country'] = country
+                    if not profile_dict.get('product_category'):
+                        profile_dict['product_category'] = commodity
+                    
                     # Verify emails - disabled (no email service purchased)
-                    # profile_dict = verification.verify_company_profile(profile_dict)
                     profile_dict['email_verifications'] = []
                     profile_dict['email_confidence_avg'] = 0.0
                     profile_dict['has_verified_email'] = False
@@ -128,6 +139,8 @@ async def run_pipeline(
                     profile_dict = CompanyProfile(
                         company_name=scraped.company_name,
                         website=scraped.original_url,
+                        country=country,
+                        product_category=commodity,
                     ).model_dump()
                     profile_dict['email_verifications'] = []
                     profile_dict['email_confidence_avg'] = 0.0
@@ -218,12 +231,19 @@ async def run_pipeline(
             progress.update(task3, completed=100)
             
             # ═══════════════════════════════════════════════════
-            # SAVE OUTPUT
+            # DEDUPLICATE & SAVE OUTPUT
             # ═══════════════════════════════════════════════════
-            task4 = progress.add_task("[bold cyan]Saving results...", total=100)
+            task4 = progress.add_task("[bold cyan]Deduplicating & saving results...", total=100)
             
             output_writer = OutputWriter(output_dir=output_dir)
-            progress.update(task4, advance=20)
+            progress.update(task4, advance=10)
+            
+            # Deduplicate profiles by company name
+            pre_dedup = len(profiles)
+            profiles = output_writer.deduplicate_profiles(profiles)
+            deduped = pre_dedup - len(profiles)
+            console.print(f"[green]✓[/green] Deduplicated: removed {deduped} duplicates ({len(profiles)} unique companies)")
+            progress.update(task4, advance=30)
             
             filepath = output_writer.write_detailed_csv(
                 profiles=profiles,
@@ -298,7 +318,7 @@ def main(
     country: str = typer.Option(..., "--country", "-C", help="Country to search in (e.g., 'India', 'Germany')"),
     industry: str = typer.Option(None, "--industry", "-i", help="Optional industry category"),
     queries_per_pattern: int = typer.Option(3, "--queries-per-pattern", "-q", help="Number of results per search query"),
-    model: str = typer.Option("z-ai/glm-4.7:nitro", "--model", "-m", help="LLM model to use"),
+    model: str = typer.Option("openai/gpt-oss-120b:nitro", "--model", "-m", help="LLM model to use"),
     output_dir: str = typer.Option("output", "--output-dir", "-o", help="Output directory for results"),
     outreach: bool = typer.Option(False, "--outreach", help="Generate personalized email drafts for leads with score >= 80"),
 ):

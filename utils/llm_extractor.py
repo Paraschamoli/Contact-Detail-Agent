@@ -21,12 +21,19 @@ class CompanyProfile(BaseModel):
     company_name: Optional[str] = Field(default=None, description="Official name of the company")
     direct_emails: Optional[List[str]] = Field(default=None, description="List of department-specific emails (e.g., sales@, exports@, info@). Decoded from obfuscated formats.")
     phone_numbers: Optional[List[str]] = Field(default=None, description="List of phone numbers in validated international format (e.g., +91-22-12345678)")
+    contact_person: Optional[str] = Field(default=None, description="Name of contact person if available (e.g., sales manager, export director)")
     key_executives: Optional[List[ExecutiveInfo]] = Field(default=None, description="List of key executives with names and titles")
     export_details: Optional[List[str]] = Field(default=None, description="Specific descriptions of what the company exports (e.g., 'Cold-rolled steel sheets' not just 'Steel')")
     certifications: Optional[List[str]] = Field(default=None, description="Certifications found (CE, ISO 9001, ISO 14001, REX registration, etc.)")
     export_region: Optional[str] = Field(default=None, description="Export markets or regions the company serves")
+    eu_destinations: Optional[List[str]] = Field(default=None, description="Specific EU countries the company exports to (e.g., Germany, France, Netherlands)")
     website: Optional[str] = Field(default=None, description="Company website URL")
     location: Optional[str] = Field(default=None, description="Company address or location")
+    country: Optional[str] = Field(default=None, description="Country where the company is located")
+    product_category: Optional[str] = Field(default=None, description="Product category the company belongs to (e.g., textiles, electronics, steel)")
+    linkedin_profile: Optional[str] = Field(default=None, description="LinkedIn company page URL if found")
+    social_links: Optional[List[str]] = Field(default=None, description="Other social media profile links (Facebook, Twitter, etc.)")
+    business_description: Optional[str] = Field(default=None, description="Brief description of the company's business activities")
 
 
 class CompanyContact(BaseModel):
@@ -44,7 +51,7 @@ class LLMExtractor:
     by returning null for missing fields. Supports both basic and deep detail extraction.
     """
     
-    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
+    def __init__(self, model: str = "openai/gpt-oss-120b:nitro"):
         """Initialize the LLM extractor.
         
         Args:
@@ -218,17 +225,52 @@ certifications: Extract any certifications or registrations:
   - BIS, FSSC 22000, IATF 16949, AS9100
   - Return null if no certifications mentioned
 
+contact_person: Name of a specific contact person if mentioned (sales manager, export director, etc.)
+  - Look for names paired with titles like "Mr. X - Export Director" or "Contact: Ms. Y"
+  - Return null if no specific contact person is mentioned
+
+eu_destinations: Specific EU countries the company exports to:
+  - Look for mentions like "exports to Germany, France, Netherlands" or "EU market"
+  - Common EU destinations: Germany, France, Netherlands, Italy, Spain, Belgium, Poland, etc.
+  - Return null if no EU destinations are mentioned
+
+country: Country where the company is headquartered or located
+  - Infer from address, phone country code, or domain TLD if not explicitly stated
+  - Return null if country cannot be determined
+
+product_category: The broad product category (e.g., textiles, electronics, steel, spices, furniture)
+  - This is the CATEGORY, not specific products (export_details handles specifics)
+  - Return null if category cannot be determined
+
+linkedin_profile: LinkedIn company page URL if found in the content
+  - Look for links to linkedin.com/company/...
+  - Return null if no LinkedIn link found
+
+social_links: Other social media profile URLs found (Facebook page, Twitter/X, etc.)
+  - Return null if no social links found
+
+business_description: Brief 1-3 sentence description of the company's business
+  - Synthesize from About Us, homepage, and company description sections
+  - Return null if no description can be extracted
+
 Return ONLY valid JSON with these exact fields:
 {
   "company_name": "string or null",
   "direct_emails": ["email1@company.com", "exports@company.com"] or null,
   "phone_numbers": ["+91-22-12345678"] or null,
+  "contact_person": "string or null",
   "key_executives": [{"name": "John Doe", "title": "CEO"}] or null,
   "export_details": ["Cold-rolled steel sheets", "Hot-dip galvanized coils"] or null,
   "certifications": ["ISO 9001:2015", "CE", "REX registered"] or null,
   "export_region": "string or null",
+  "eu_destinations": ["Germany", "France"] or null,
   "website": "string or null",
-  "location": "string or null"
+  "location": "string or null",
+  "country": "string or null",
+  "product_category": "string or null",
+  "linkedin_profile": "string or null",
+  "social_links": ["https://facebook.com/company"] or null,
+  "business_description": "string or null"
 }"""
     
     def _build_extraction_prompt(self, html_content: str, url: Optional[str] = None) -> str:
@@ -290,12 +332,19 @@ Extract ALL of the following:
 - company_name: Official company name
 - direct_emails: ALL department emails found (sales@, exports@, info@, etc.) - decode obfuscated formats
 - phone_numbers: ALL phone numbers in international format with country codes
+- contact_person: Specific contact person name if mentioned (e.g., "Mr. Raj Patel - Export Director")
 - key_executives: Names and titles of key leadership personnel
 - export_details: SPECIFIC product descriptions of what they export (not generic categories)
 - certifications: Any certifications mentioned (ISO, CE, REX, etc.)
 - export_region: Export markets or regions served
+- eu_destinations: Specific EU countries they export to (e.g., Germany, France, Netherlands)
 - website: Company website URL
 - location: Company address or location
+- country: Country where company is located
+- product_category: Broad product category (e.g., textiles, electronics, steel)
+- linkedin_profile: LinkedIn company page URL if found
+- social_links: Other social media profile URLs found
+- business_description: Brief 1-3 sentence company business description
 
 Return ONLY a JSON object. Use null for any field where no information is found. Use empty arrays [] only if the field type is a list and you found zero items but the section exists (e.g., a "Contact" page with no emails). Otherwise use null."""
         
@@ -358,11 +407,14 @@ Return ONLY a JSON object. Use null for any field where no information is found.
         # Log extraction results
         fields_found = sum(1 for field in [
             profile.company_name, profile.direct_emails, profile.phone_numbers,
-            profile.key_executives, profile.export_details, profile.certifications,
-            profile.export_region, profile.website, profile.location
+            profile.contact_person, profile.key_executives, profile.export_details,
+            profile.certifications, profile.export_region, profile.eu_destinations,
+            profile.website, profile.location, profile.country,
+            profile.product_category, profile.linkedin_profile, profile.social_links,
+            profile.business_description
         ] if field is not None)
         
-        print(f"  [deep_extract] Extracted {fields_found}/9 fields")
+        print(f"  [deep_extract] Extracted {fields_found}/16 fields")
         if profile.direct_emails:
             print(f"  [deep_extract]   Emails: {len(profile.direct_emails)} found")
         if profile.phone_numbers:

@@ -11,7 +11,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agents.search_agent import SearchAgent, CompanySeed
-from utils.llm_extractor import LLMExtractor, CompanyContact
+from utils.llm_extractor import LLMExtractor, CompanyContact, CompanyProfile
 from utils.output_writer import OutputWriter
 
 async def test_search_only():
@@ -82,17 +82,28 @@ def test_output_writer():
     try:
         # Create sample contacts
         contacts = [
-            CompanyContact(
+            CompanyProfile(
                 company_name="ABC Textiles Inc.",
-                official_email="info@abctextiles.com",
-                phone_number="+91-123-456-7890",
-                export_region="USA, Europe, Asia Pacific"
+                direct_emails=["info@abctextiles.com"],
+                phone_numbers=["+91-123-456-7890"],
+                export_region="USA, Europe, Asia Pacific",
+                country="India",
+                product_category="textiles",
+                eu_destinations=["Germany", "France"],
+                website="https://abctextiles.com",
+                contact_person="Mr. Raj Patel",
+                business_description="Leading textile exporter from India"
             ),
-            CompanyContact(
+            CompanyProfile(
                 company_name="XYZ Garments Ltd.",
-                official_email="contact@xyzgarments.com",
-                phone_number="+91-987-654-3210",
-                export_region="Europe, Middle East"
+                direct_emails=["contact@xyzgarments.com"],
+                phone_numbers=["+91-987-654-3210"],
+                export_region="Europe, Middle East",
+                country="India",
+                product_category="garments",
+                eu_destinations=["Netherlands", "Belgium"],
+                website="https://xyzgarments.com",
+                business_description="Garment manufacturer and exporter"
             )
         ]
         

@@ -16,13 +16,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class LeadScore(BaseModel):
-    """Scored lead with reasoning"""
-    company_name: str = Field(description="Company name")
-    score: int = Field(ge=0, le=100, description="Lead score 0-100")
-    product_match: Optional[str] = Field(default=None, description="Does the company produce exactly what the user wants?")
-    eu_compliance: Optional[str] = Field(default=None, description="Compliance with EU standards (CE/CBAM/REX)")
-    company_type: Optional[str] = Field(default=None, description="Manufacturer or middleman/trader assessment")
-    reasoning: str = Field(default="", description="Brief paragraph explaining why this company was ranked this way")
+    """Result of lead scoring analysis"""
+    company_name: Optional[str] = Field(default="Unknown", description="Name of the company")
+    score: int = Field(description="Overall lead score from 0-100")
+    product_match: Optional[str] = Field(default=None, description="Product match assessment")
+    eu_compliance: Optional[str] = Field(default=None, description="EU compliance assessment")
+    company_type: Optional[str] = Field(default=None, description="Company type (manufacturer/middleman)")
+    reasoning: str = Field(description="Detailed reasoning for the score")
 
 
 class AnalystAgent:
@@ -36,7 +36,7 @@ class AnalystAgent:
     Outputs a LeadScore (0-100) with reasoning for each company.
     """
     
-    def __init__(self, model: str = "z-ai/glm-4.7:nitro"):
+    def __init__(self, model: str = "openai/gpt-oss-120b:nitro"):
         """Initialize the analyst agent.
         
         Args:
@@ -105,7 +105,7 @@ class AnalystAgent:
         except Exception as e:
             print(f"  [analyst] Error scoring {company_name}: {e}")
             return LeadScore(
-                company_name=company_name,
+                company_name=company_name or 'Unknown',
                 score=0,
                 reasoning=f"Scoring failed: {e}"
             )
@@ -214,31 +214,31 @@ Return ONLY a JSON object with these fields:
     
     def _build_scoring_prompt(
         self,
-        profile_dict: dict,
+        profile: dict,
         commodity: str,
         country: str,
-        legitimacy_level: Optional[str],
+        legitimacy: Optional[str],
     ) -> str:
         """Build the scoring prompt.
         
         Args:
-            profile_dict: Company profile dictionary
+            profile: Company profile dictionary
             commodity: Target commodity
             country: Target country
-            legitimacy_level: Trade validation result
+            legitimacy: Trade legitimacy level
             
         Returns:
             Formatted prompt string
         """
         # Format profile data for the prompt
-        company_name = profile_dict.get('company_name', 'Unknown')
-        direct_emails = profile_dict.get('direct_emails') or []
-        phone_numbers = profile_dict.get('phone_numbers') or []
-        export_details = profile_dict.get('export_details') or []
-        certifications = profile_dict.get('certifications') or []
-        export_region = profile_dict.get('export_region') or 'Unknown'
-        location = profile_dict.get('location') or 'Unknown'
-        website = profile_dict.get('website') or 'Unknown'
+        company_name = profile.get('company_name') or 'Unknown'
+        direct_emails = profile.get('direct_emails') or []
+        phone_numbers = profile.get('phone_numbers') or []
+        export_details = profile.get('export_details') or []
+        certifications = profile.get('certifications') or []
+        export_region = profile.get('export_region') or 'Unknown'
+        location = profile.get('location') or 'Unknown'
+        website = profile.get('website') or 'Unknown'
         
         prompt = f"""Evaluate this company as a potential lead for sourcing {commodity} from {country}.
 
@@ -257,8 +257,8 @@ COMPANY PROFILE:
 - Phones: {', '.join(phone_numbers) if phone_numbers else 'None found'}
 """
         
-        if legitimacy_level:
-            prompt += f"\nTRADE LEGITIMACY: {legitimacy_level}\n"
+        if legitimacy:
+            prompt += f"\nTRADE LEGITIMACY: {legitimacy}\n"
         
         prompt += """
 Score this lead on a 0-100 scale based on:
